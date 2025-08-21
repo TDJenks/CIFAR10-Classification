@@ -2,7 +2,7 @@ import torch
 import torchvision
 import torchvision.transforms as transforms
 
-def get_cifar10_loaders(batch_size=128, num_workers=2):
+def get_cifar10_loaders(batch_size=128, num_workers=0):
     # Transforms for training
     # Random crops and flips to help with learning
     transform_train = transforms.Compose([
@@ -35,7 +35,7 @@ def get_cifar10_loaders(batch_size=128, num_workers=2):
         download=True, 
         transform=transform_test
     )
-
+    
     # Initializing DataLoaders
     
     trainloader = torch.utils.data.DataLoader(
