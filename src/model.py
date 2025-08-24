@@ -39,8 +39,6 @@ class CIFAR10CNN(nn.Module):
 
         # Dropout to help learning and prevent overfitting :p
         x = self.dropout(F.relu(self.fc1(x)))
-        x = self.fc2(x)
-
-        # TODO Softmax 
+        logits = self.fc2(x)
        
-        return x
+        return logits
