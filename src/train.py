@@ -17,11 +17,13 @@ import matplotlib.pyplot as plt
 from data_loader import get_cifar10_loaders
 from model import CIFAR10CNN
 
+'''     There are a lot of notes in this code, this is to help me remember
+        the significance of each step as I am quite new to this, bare with me   '''
 
 # Config <3
 @dataclass
 class TrainConfig:
-    epochs: int = 20
+    epochs: int = 2
     lr: float = 0.003
     weight_decay: float = 0.0
     batch_size: int = 128
@@ -41,7 +43,7 @@ def set_seed(seed):
 # Compares logits to the truth and returns correct predictions and total predictions
 def accuracy_from_logits(logits, targets):
     preds = logits.argmax(dim=1)  # Returns index of most confident class for each image
-    correct = (preds == targets).sum().item()  # Sum and convert to int
+    correct = (preds == targets).sum().item()  # Sum and convert from scalar tensor to int
     total = targets.size(0)
     return correct, total
 
@@ -56,7 +58,10 @@ def train_one_epoch(model, loader, criterion, optimizer, device):
 
     # Training loop (One pass)
     for images, labels in loader:
-        images = images.to(device, non_blocking=True)
+        # images = [batch_size, channels, height, width]
+        images = images.to(device, non_blocking=True) # non_blocking for GPU efficiency (asynchronous memory copies)
+        
+        # labels = [batch_size]
         labels = labels.to(device, non_blocking=True)
 
         # Clear old gradients (for efficiency)
@@ -64,9 +69,9 @@ def train_one_epoch(model, loader, criterion, optimizer, device):
 
         # Forward pass
         logits = model(images)
-        loss = criterion(logits, labels)
+        loss = criterion(logits, labels) # cross-entropy :p
         loss.backward()
-        optimizer.step()
+        optimizer.step() # Change model weights based on LR and gradient
 
         # Stats
         running_loss += loss.item() * images.size(0)
@@ -107,8 +112,9 @@ def evaluate(model, loader, criterion, device):
         "acc": correct / total
     }
 
-# Complete training loop
-def train_loop(cfg):
+# Complete training loop (resume = True if you want to train previously saved model)
+def train_loop(cfg, resume):
+
     set_seed(cfg.seed)
 
     # Use CPU power if GPU is not available
@@ -118,28 +124,56 @@ def train_loop(cfg):
     # Load data
     train_loader, val_loader = get_cifar10_loaders(batch_size=cfg.batch_size, num_workers=cfg.num_workers)
 
-    # Initialize model, criteria, optimizer
+    # Initialize model, optimizer
     model = CIFAR10CNN().to(device)
-    criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=cfg.lr, weight_decay=cfg.weight_decay)
 
-    # This scheduler reduces LR upon hitting a valley
+    # Initialize scheduler
     scheduler = ReduceLROnPlateau(optimizer, mode="max", factor=0.5, patience=2)
+
+    # Initialize criterion
+    criterion = nn.CrossEntropyLoss()
+
+    # Initialize history
+    history = {"train_loss": [], "train_acc": [], "val_loss": [], "val_acc": []}
+    start_epoch = 1
+    best_val_acc = 0.0
 
     # Initialize storage directory if not yet exists
     os.makedirs(cfg.save_dir, exist_ok=True)
     best_path = os.path.join(cfg.save_dir, cfg.save_name)
 
-    # Initialize history
-    history: Dict[str, List[float]] = {"train_loss": [], "train_acc": [], "val_loss": [], "val_acc": []}
-    best_val_acc = 0.0
+    # Resume training of previous best model
+    if resume:
+
+        # Load best previous model
+        checkpoint = torch.load(best_path, map_location=device)
+
+        # Load previous model weights
+        try:
+            model.load_state_dict(checkpoint["model_state"])
+            print("Model weights loaded")
+        except Exception as e:
+            print("Error loading model weights:", e)
+
+        # Load previous optimizer state
+        try:
+            optimizer.load_state_dict(checkpoint["optimizer_state"])
+            print("Optimizer state loaded")
+        except Exception as e:
+            print("Could not load optimizer state:", e)
+
+        start_epoch = checkpoint.get("epoch", 0) + 1
+        best_val_acc = checkpoint.get("val_acc", None)
+
+        print(f"Resumed from epoch {start_epoch}, val_acc={best_val_acc:.4f}")
 
     # Main Training loop
-    for epoch in range(1, cfg.epochs + 1):
+    for epoch in range(start_epoch + 1, cfg.epochs + start_epoch + 1):
         train_metrics = train_one_epoch(model, train_loader, criterion, optimizer, device)
         val_metrics = evaluate(model, val_loader, criterion, device)
 
-        # Track metrics
+        # Track metrics for plotting
         history["train_loss"].append(train_metrics["loss"])
         history["train_acc"].append(train_metrics["acc"])
         history["val_loss"].append(val_metrics["loss"])
@@ -191,7 +225,12 @@ def train_loop(cfg):
 
 def main():
     cfg = TrainConfig()
-    train_loop(cfg)
+
+    # Prompt resuming
+    choice = input("Resume training from checkpoint? (y/n): ").strip().lower()
+    resume = (choice == "y")
+
+    train_loop(cfg, resume)
 
 if __name__ == "__main__":
     main()
