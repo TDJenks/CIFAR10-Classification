@@ -1,6 +1,5 @@
 import os
 from dataclasses import dataclass
-from typing import Tuple, Dict, List
 
 import random
 import numpy as np
@@ -23,8 +22,8 @@ from model import CIFAR10CNN
 # Config <3
 @dataclass
 class TrainConfig:
-    epochs: int = 2
-    lr: float = 0.003
+    epochs: int = 1
+    lr: float = 0.005
     weight_decay: float = 0.0
     batch_size: int = 128
     num_workers: int = 0
@@ -122,7 +121,9 @@ def train_loop(cfg, resume):
     print(f"Using device: {device}")
 
     # Load data
-    train_loader, val_loader = get_cifar10_loaders(batch_size=cfg.batch_size, num_workers=cfg.num_workers)
+    train_loader, val_loader, test_loader = get_cifar10_loaders(
+    batch_size=cfg.batch_size, num_workers=cfg.num_workers
+    )
 
     # Initialize model, optimizer
     model = CIFAR10CNN().to(device)
@@ -169,7 +170,7 @@ def train_loop(cfg, resume):
         print(f"Resumed from epoch {start_epoch}, val_acc={best_val_acc:.4f}")
 
     # Main Training loop
-    for epoch in range(start_epoch + 1, cfg.epochs + start_epoch + 1):
+    for epoch in range(start_epoch, cfg.epochs + start_epoch + 1):
         train_metrics = train_one_epoch(model, train_loader, criterion, optimizer, device)
         val_metrics = evaluate(model, val_loader, criterion, device)
 
@@ -184,7 +185,7 @@ def train_loop(cfg, resume):
 
         # Using formatted strings to be able to track the performance visually in real time
         print(
-            f"Epoch {epoch:02d}/{cfg.epochs} | "
+            f"Epoch {epoch:02d}/{cfg.epochs + start_epoch} | "
             f"train_loss: {train_metrics['loss']:.4f}  train_acc: {train_metrics['acc']*100:5.2f}% | "
             f"val_loss: {val_metrics['loss']:.4f}  val_acc: {val_metrics['acc']*100:5.2f}%"
         )
@@ -199,6 +200,16 @@ def train_loop(cfg, resume):
                        best_path)
             print(f"Saved new best model to {best_path} (val_acc={best_val_acc*100:.2f}%)")
 
+    # Evaluate model on test set
+    print("\nEvaluating best saved model on test set..")
+
+    checkpoint = torch.load(best_path, map_location=device)
+    model.load_state_dict(checkpoint["model_state"])
+
+    test_metrics = evaluate(model, test_loader, criterion, device)
+    print(
+        f"Test results | loss: {test_metrics['loss']:.4f}, acc: {test_metrics['acc']*100:.2f}%"
+    )
     # Plot training curves
     try:
         plt.figure()
